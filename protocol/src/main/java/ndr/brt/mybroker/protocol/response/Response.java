@@ -4,7 +4,7 @@ import ndr.brt.mybroker.protocol.Header;
 import ndr.brt.mybroker.protocol.Message;
 
 public class Response implements Message {
-    final Header header;
+    private final Header header;
 
     public Response(Header header) {
         this.header = header;
