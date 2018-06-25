@@ -1,10 +1,11 @@
 package ndr.brt.mybroker.protocol;
 
+import java.io.Serializable;
 import java.net.Inet4Address;
 import java.net.UnknownHostException;
 import java.util.UUID;
 
-public class Header {
+public class Header implements Serializable {
     private final String clientId;
     private final String messageId;
     private final String correlationId;
@@ -20,7 +21,11 @@ public class Header {
     }
 
     public static Header headerFor(String clientId) {
-        String hostAddress = null;
+        return headerFor(clientId, UUID.randomUUID().toString());
+    }
+
+    public static Header headerFor(String clientId, String correlationId) {
+        String hostAddress;
         try {
             hostAddress = Inet4Address.getLocalHost().getHostAddress();
         } catch (UnknownHostException e) {
@@ -29,7 +34,7 @@ public class Header {
         return new Header(
                     clientId,
                     UUID.randomUUID().toString(),
-                    UUID.randomUUID().toString(),
+                    correlationId,
                     hostAddress,
                     System.currentTimeMillis()
             );
@@ -37,5 +42,9 @@ public class Header {
 
     public String correlationId() {
         return correlationId;
+    }
+
+    public String clientId() {
+        return clientId;
     }
 }

@@ -11,4 +11,5 @@ public class Register extends Request {
         this.username = username;
         this.password = password;
     }
+
 }

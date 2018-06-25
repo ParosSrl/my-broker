@@ -1,7 +1,6 @@
 package ndr.brt.mybroker.client;
 
 import com.ea.async.Async;
-import io.vertx.core.AsyncResult;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
@@ -16,8 +15,10 @@ import ndr.brt.mybroker.protocol.request.Unregister;
 import ndr.brt.mybroker.protocol.response.Registered;
 import ndr.brt.mybroker.protocol.response.Response;
 import ndr.brt.mybroker.protocol.response.Unregistered;
+import ndr.brt.mybroker.serdes.MessageSerDes;
 import ndr.brt.mybroker.serdes.SerDes;
 
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -39,10 +40,38 @@ public class NetworkClient {
     public NetworkClient(Vertx vertx, SerDes<Message> serDes) {
         this.vertx = vertx;
         this.serDes = serDes;
+        this.socket = bind("localhost", 9999);
     }
 
-    public void bind() {
-        vertx.createNetClient().connect(9999, "localhost", handleResponse);
+    private NetSocket bind(String host, int port) {
+        CompletableFuture<NetSocket> promise = new CompletableFuture<>();
+        vertx.createNetClient().connect(port, host, response -> {
+            if (response.succeeded()) {
+                socket = response.result();
+
+                final RecordParser parser = RecordParser.newFixed(4, (ReadStream<Buffer>) null);
+                parser.setOutput(getHandler(parser));
+                socket.handler(parser);
+
+                socket.closeHandler(handler -> {
+                    //logger.info(getClientId() + " is disconnected");
+                    //close();
+                });
+
+                socket.exceptionHandler(exception -> {
+                    //logger.error(getClientId() + " exception: " + exception.getMessage());
+                    //close();
+                });
+
+                promise.complete(socket);
+
+            } else {
+                promise.completeExceptionally(response.cause());
+                throw new RuntimeException(response.cause());
+            }
+        });
+
+        return Async.await(promise);
     }
 
     private Handler<Buffer> getHandler(final RecordParser parser) {
@@ -57,7 +86,7 @@ public class NetworkClient {
                     size = buffer.getInt(0);
                     parser.fixedSizeMode(size);
                 } else {
-                    final Object data = serDes.deserialize(buffer.getBytes());
+                    final Message data = serDes.deserialize(buffer.getBytes());
                     receive(data);
                     //metrics.messageRead(received.address(), buff.length());
                     parser.fixedSizeMode(4);
@@ -67,44 +96,15 @@ public class NetworkClient {
         };
     }
 
-    private void receive(Object data) {
+    private void receive(Message data) {
         if (Registered.class.isInstance(data)) {
+            responses.put(Registered.class.cast(data).correlationId(), (Response) data);
             isConnected = true;
         } else if (Unregistered.class.isInstance(data)) {
             isConnected = false;
         } else {
             throw new RuntimeException("Unknown message");
         }
-    }
-
-    private final Handler<AsyncResult<NetSocket>> handleResponse = response -> {
-        if (response.succeeded()) {
-            socket = response.result();
-
-            final RecordParser parser = RecordParser.newFixed(4, (ReadStream<Buffer>) null);
-            parser.setOutput(getHandler(parser));
-            socket.handler(parser);
-
-            socket.closeHandler(handler -> {
-                //logger.info(getClientId() + " is disconnected");
-                //close();
-            });
-
-            socket.exceptionHandler(exception -> {
-                //logger.error(getClientId() + " exception: " + exception.getMessage());
-                //close();
-            });
-
-        } else {
-            throw new RuntimeException(response.cause());
-        }
-    };
-
-    private void send(final Request request, final Handler<Response> handler) {
-        write(request);
-        CompletableFuture<Response> promise = new CompletableFuture<>();
-        promise.thenAccept(handler::handle);
-        executor.execute(new Task(request, promise));
     }
 
     public Registered register(final String clientId, final String username, final String password) {
@@ -129,6 +129,12 @@ public class NetworkClient {
             promise.completeExceptionally(e);
         }
         return Async.await(promise);
+    }
+
+    private void send(final Request request, final Handler<Response> handler) {
+        CompletableFuture<Response> promise = new CompletableFuture<>();
+        promise.thenAccept(handler::handle);
+        executor.execute(new Task(request, promise));
     }
 
     private void write(final Message message) {
@@ -168,5 +174,13 @@ public class NetworkClient {
                 Thread.yield();
             }
         }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        Vertx vertx = Vertx.vertx();
+        NetworkClient client = new NetworkClient(vertx, new MessageSerDes());
+        System.out.println("Binded! " + client);
+        Registered registered = client.register(UUID.randomUUID().toString(), "Gigi", "Sabani");
+        System.out.println("Registered! " + registered);
     }
 }

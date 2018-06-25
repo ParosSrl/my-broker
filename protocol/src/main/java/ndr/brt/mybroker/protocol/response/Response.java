@@ -9,4 +9,8 @@ public class Response implements Message {
     public Response(Header header) {
         this.header = header;
     }
+
+    public String correlationId() {
+        return header.correlationId();
+    }
 }

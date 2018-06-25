@@ -10,4 +10,5 @@ public class Registered extends Response {
         super(header);
         this.timestamp = timestamp;
     }
+
 }

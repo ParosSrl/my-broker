@@ -13,4 +13,12 @@ public class Request implements Message {
     public Header header() {
         return header;
     }
+
+    public String clientId() {
+        return header().clientId();
+    }
+
+    public String correlationId() {
+        return header().correlationId();
+    }
 }
