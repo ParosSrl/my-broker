@@ -1,5 +1,9 @@
 package ndr.brt.mybroker.protocol;
 
+import java.net.Inet4Address;
+import java.net.UnknownHostException;
+import java.util.UUID;
+
 public class Header {
     private final String clientId;
     private final String messageId;
@@ -13,5 +17,25 @@ public class Header {
         this.correlationId = correlationId;
         this.ipAddress = ipAddress;
         this.timestamp = timestamp;
+    }
+
+    public static Header headerFor(String clientId) {
+        String hostAddress = null;
+        try {
+            hostAddress = Inet4Address.getLocalHost().getHostAddress();
+        } catch (UnknownHostException e) {
+            hostAddress = "unknown";
+        }
+        return new Header(
+                    clientId,
+                    UUID.randomUUID().toString(),
+                    UUID.randomUUID().toString(),
+                    hostAddress,
+                    System.currentTimeMillis()
+            );
+    }
+
+    public String correlationId() {
+        return correlationId;
     }
 }

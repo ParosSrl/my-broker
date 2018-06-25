@@ -9,4 +9,8 @@ public class Request implements Message {
     public Request(Header header) {
         this.header = header;
     }
+
+    public Header header() {
+        return header;
+    }
 }
