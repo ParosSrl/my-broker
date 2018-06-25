@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static io.vertx.core.Vertx.vertx;
 import static io.vertx.core.buffer.Buffer.buffer;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
@@ -107,8 +108,10 @@ public class NetworkClient {
         if (Registered.class.isInstance(data)) {
             responses.put(Registered.class.cast(data).correlationId(), (Response) data);
             isConnected = true;
+            logger.info("I'm registered!");
         } else if (Unregistered.class.isInstance(data)) {
             isConnected = false;
+            logger.info("I'm unregistered! :(");
         } else if (LeadershipNotification.class.isInstance(data)) {
             LeadershipNotification leadership = LeadershipNotification.class.cast(data);
             isLeader.set(leadership.isLeader());
@@ -187,12 +190,9 @@ public class NetworkClient {
         }
     }
 
-    public static void main(String[] args) throws InterruptedException {
-        Vertx vertx = Vertx.vertx();
-        NetworkClient client = new NetworkClient(vertx, new MessageSerDes());
-        System.out.println("Binded! " + client);
-        String clientId = "solitoId";
-        Registered registered = client.register(clientId, "Gigi", "Sabani");
-        System.out.println("Registered! " + registered);
+    public static void main(String[] args) {
+        NetworkClient client = new NetworkClient(vertx(), new MessageSerDes());
+        String clientId = "uniqueId";
+        client.register(clientId, "Gigi", "Sabani");
     }
 }
