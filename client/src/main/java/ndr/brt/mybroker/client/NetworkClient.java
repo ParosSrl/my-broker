@@ -4,6 +4,8 @@ import com.ea.async.Async;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.parsetools.RecordParser;
 import io.vertx.core.streams.ReadStream;
@@ -12,6 +14,7 @@ import ndr.brt.mybroker.protocol.Message;
 import ndr.brt.mybroker.protocol.request.Register;
 import ndr.brt.mybroker.protocol.request.Request;
 import ndr.brt.mybroker.protocol.request.Unregister;
+import ndr.brt.mybroker.protocol.response.LeadershipNotification;
 import ndr.brt.mybroker.protocol.response.Registered;
 import ndr.brt.mybroker.protocol.response.Response;
 import ndr.brt.mybroker.protocol.response.Unregistered;
@@ -23,12 +26,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static io.vertx.core.buffer.Buffer.buffer;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class NetworkClient {
 
+    private final Logger logger = LoggerFactory.getLogger(getClass());
     private final Vertx vertx;
     private SerDes<Message> serDes;
     private boolean isConnected = false;
@@ -36,11 +41,13 @@ public class NetworkClient {
     private final ConcurrentMap<String, Request> requests = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Response> responses = new ConcurrentHashMap<>();
     private ExecutorService executor = newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final AtomicBoolean isLeader;
 
     public NetworkClient(Vertx vertx, SerDes<Message> serDes) {
         this.vertx = vertx;
         this.serDes = serDes;
         this.socket = bind("localhost", 9999);
+        isLeader = new AtomicBoolean();
     }
 
     private NetSocket bind(String host, int port) {
@@ -96,11 +103,16 @@ public class NetworkClient {
     }
 
     private void receive(Message data) {
+        logger.info(data.getClass().getSimpleName() + " received");
         if (Registered.class.isInstance(data)) {
             responses.put(Registered.class.cast(data).correlationId(), (Response) data);
             isConnected = true;
         } else if (Unregistered.class.isInstance(data)) {
             isConnected = false;
+        } else if (LeadershipNotification.class.isInstance(data)) {
+            LeadershipNotification leadership = LeadershipNotification.class.cast(data);
+            isLeader.set(leadership.isLeader());
+            logger.info("Am I the leader? " + isLeader.get());
         } else {
             throw new RuntimeException("Unknown message");
         }
@@ -179,7 +191,8 @@ public class NetworkClient {
         Vertx vertx = Vertx.vertx();
         NetworkClient client = new NetworkClient(vertx, new MessageSerDes());
         System.out.println("Binded! " + client);
-        Registered registered = client.register(UUID.randomUUID().toString(), "Gigi", "Sabani");
+        String clientId = "solitoId";
+        Registered registered = client.register(clientId, "Gigi", "Sabani");
         System.out.println("Registered! " + registered);
     }
 }

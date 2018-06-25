@@ -2,24 +2,29 @@ package ndr.brt.mybroker.server;
 
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Handler;
+import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetServer;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.parsetools.RecordParser;
+import io.vertx.core.shareddata.Lock;
 import io.vertx.core.streams.ReadStream;
 import ndr.brt.mybroker.protocol.Header;
 import ndr.brt.mybroker.protocol.Message;
 import ndr.brt.mybroker.protocol.request.Register;
 import ndr.brt.mybroker.protocol.request.Request;
 import ndr.brt.mybroker.protocol.request.Unregister;
+import ndr.brt.mybroker.protocol.response.LeadershipNotification;
 import ndr.brt.mybroker.protocol.response.Registered;
 import ndr.brt.mybroker.protocol.response.Response;
 import ndr.brt.mybroker.serdes.SerDes;
 
 import java.util.HashMap;
 import java.util.Map;
+
+import static ndr.brt.mybroker.protocol.Header.headerFor;
 
 public class Broker extends AbstractVerticle {
     private final Logger logger = LoggerFactory.getLogger(getClass());
@@ -32,7 +37,7 @@ public class Broker extends AbstractVerticle {
     }
 
     @Override
-    public void start() throws Exception {
+    public void start() {
         NetServer server = vertx.createNetServer();
 
         server.connectHandler(socket -> {
@@ -49,7 +54,6 @@ public class Broker extends AbstractVerticle {
                     } else {
                         final Request data = (Request) serdes.deserialize(buffer.getBytes());
                         receive(socket, data);
-                        //metrics.messageRead(received.address(), buff.length());
                         parser.fixedSizeMode(4);
                         size = -1;
                     }
@@ -66,11 +70,11 @@ public class Broker extends AbstractVerticle {
                 if (client != null) {
                     if (!client.isClosed()) {
                         client.close();
-                        logger.info("Client {} disconnected", client.clientId);
+                        logger.info("Client " + client.clientId +" disconnected");
                         clients.remove(socket);
                     }
                 } else {
-                    logger.warn("Unknown client {} disconnected", client.clientId);
+                    logger.warn("Unknown client disconnected");
                 }
             });
 
@@ -89,20 +93,20 @@ public class Broker extends AbstractVerticle {
 
     private void receive(NetSocket socket, Request data) {
         if (Register.class.isInstance(data)) {
-            logger.info("Client {} register request", data.clientId());
+            logger.info("Client " + data.clientId() + " register request");
             Register register = (Register) data;
 
             if (clients.containsKey(socket)) {
-                logger.info("Client {} already exists", data.clientId());
+                logger.info("Client " + data.clientId() + " already exists");
             }
             else {
                 Client client = new Client(register.clientId(), socket);
                 clients.put(socket, client);
                 client.handle(data);
-                logger.info("Client {} registered", data.clientId());
+                logger.info("Client " + data.clientId() +" registered");
             }
         } else if (Unregister.class.isInstance(data)) {
-            logger.info("Client {} unregister request", data.clientId());
+            logger.info("Client " + data.clientId() + " unregister request");
             if (clients.containsKey(socket)) {
                 clients.remove(socket);
             }
@@ -116,6 +120,8 @@ public class Broker extends AbstractVerticle {
     private class Client {
 
         private boolean isClosed = false;
+        private Lock lock;
+        private boolean isLeader;
         private final String clientId;
         private final NetSocket socket;
 
@@ -125,7 +131,16 @@ public class Broker extends AbstractVerticle {
         }
 
         public void close() {
+            if (lock != null) {
+                vertx.executeBlocking(future -> {
+                    logger.info("Releasing lock for client " + clientId);
+                    lock.release();
+                    future.complete();
+                }, false,
+                handler -> logger.info("Lock released for client " + clientId));
+            }
             isClosed = true;
+            socket.close();
         }
 
         public boolean isClosed() {
@@ -134,8 +149,9 @@ public class Broker extends AbstractVerticle {
 
         public void handle(final Request request) {
             if (Register.class.isInstance(request)) {
-                Registered registered = new Registered(Header.headerFor(clientId, request.correlationId()), System.currentTimeMillis());
+                Registered registered = new Registered(headerFor(clientId, request.correlationId()), System.currentTimeMillis());
                 send(socket, registered);
+                acquire(vertx);
             }
         }
 
@@ -155,6 +171,26 @@ public class Broker extends AbstractVerticle {
                     close();
                 }
             });
+        }
+
+        private void acquire(final Vertx vertx) {
+
+            logger.info("Acquiring lock for client " + clientId);
+            vertx.sharedData().getLock(clientId, result -> {
+                if (result.succeeded()) {
+                    lock = result.result();
+                    isLeader = true;
+                    notifyLeadership(socket, clientId, isLeader);
+                    logger.info("Lock acquired for client " + clientId);
+                    logger.info("Client " + clientId +" is now leader");
+                } else {
+                    vertx.setTimer(1000, res -> acquire(vertx));
+                }
+            });
+        }
+
+        private void notifyLeadership(NetSocket socket, String clientId, boolean isLeader) {
+            send(socket, new LeadershipNotification(headerFor(clientId, "no-correlation-id"), isLeader));
         }
     }
 
