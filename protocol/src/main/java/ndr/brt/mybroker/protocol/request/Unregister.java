@@ -1,4 +1,9 @@
 package ndr.brt.mybroker.protocol.request;
 
-public class Unregister extends AbstractRequest {
+import ndr.brt.mybroker.protocol.Header;
+
+public class Unregister extends Request {
+    public Unregister(Header header) {
+        super(header);
+    }
 }

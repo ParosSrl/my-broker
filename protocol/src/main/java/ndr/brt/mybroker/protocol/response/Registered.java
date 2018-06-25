@@ -1,4 +1,9 @@
 package ndr.brt.mybroker.protocol.response;
 
-public class Registered extends AbstractResponse {
+import ndr.brt.mybroker.protocol.Header;
+
+public class Registered extends Response {
+    public Registered(Header header) {
+        super(header);
+    }
 }

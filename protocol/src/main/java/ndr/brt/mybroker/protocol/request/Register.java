@@ -1,4 +1,9 @@
 package ndr.brt.mybroker.protocol.request;
 
-public class Register extends AbstractRequest {
+import ndr.brt.mybroker.protocol.Header;
+
+public class Register extends Request {
+    public Register(Header header) {
+        super(header);
+    }
 }
