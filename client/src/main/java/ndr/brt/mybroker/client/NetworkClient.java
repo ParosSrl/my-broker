@@ -88,7 +88,6 @@ public class NetworkClient {
                 } else {
                     final Message data = serDes.deserialize(buffer.getBytes());
                     receive(data);
-                    //metrics.messageRead(received.address(), buff.length());
                     parser.fixedSizeMode(4);
                     size = -1;
                 }

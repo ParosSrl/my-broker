@@ -3,6 +3,8 @@ package ndr.brt.mybroker.server;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetServer;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.parsetools.RecordParser;
@@ -15,8 +17,6 @@ import ndr.brt.mybroker.protocol.request.Unregister;
 import ndr.brt.mybroker.protocol.response.Registered;
 import ndr.brt.mybroker.protocol.response.Response;
 import ndr.brt.mybroker.serdes.SerDes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -66,11 +66,11 @@ public class Broker extends AbstractVerticle {
                 if (client != null) {
                     if (!client.isClosed()) {
                         client.close();
-                        System.out.println("Client " + client.clientId + " si è disconnesso");
+                        logger.info("Client {} disconnected", client.clientId);
                         clients.remove(socket);
                     }
                 } else {
-
+                    logger.warn("Unknown client {} disconnected", client.clientId);
                 }
             });
 
@@ -79,7 +79,7 @@ public class Broker extends AbstractVerticle {
 
         server.listen(9999, "localhost", handler -> {
             if (handler.succeeded()) {
-                System.out.println("Broker (1) listening on localhost:9999");
+                logger.info("Broker (1) listening on localhost:9999");
             } else {
                 logger.error("Error", handler.cause());
                 throw new RuntimeException(handler.cause());
@@ -89,20 +89,21 @@ public class Broker extends AbstractVerticle {
 
     private void receive(NetSocket socket, Request data) {
         if (Register.class.isInstance(data)) {
+            logger.info("Client {} register request", data.clientId());
             Register register = (Register) data;
 
             if (clients.containsKey(socket)) {
-                System.out.println("Il client " + register.clientId() +" già esiste");
+                logger.info("Client {} already exists", data.clientId());
             }
             else {
-                System.out.println("Nuovo client " + register.clientId());
                 Client client = new Client(register.clientId(), socket);
                 clients.put(socket, client);
                 client.handle(data);
+                logger.info("Client {} registered", data.clientId());
             }
         } else if (Unregister.class.isInstance(data)) {
+            logger.info("Client {} unregister request", data.clientId());
             if (clients.containsKey(socket)) {
-                System.out.println("Unregister client");
                 clients.remove(socket);
             }
 
@@ -150,7 +151,7 @@ public class Broker extends AbstractVerticle {
                 future.complete();
             }, response -> {
                 if (response.failed()) {
-                    System.err.println("Send failed " + response.cause().getMessage());
+                    logger.error("Send failed", response.cause());
                     close();
                 }
             });

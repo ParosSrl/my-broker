@@ -3,19 +3,22 @@ package ndr.brt.mybroker.server;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.spi.cluster.ClusterManager;
 import io.vertx.spi.cluster.hazelcast.HazelcastClusterManager;
 import ndr.brt.mybroker.serdes.MessageSerDes;
 
 public class Server extends AbstractVerticle {
+    private final Logger logger = LoggerFactory.getLogger(getClass());
     private final ClusterManager clusterManager;
 
-    public Server(ClusterManager clusterManager) {
+    private Server(ClusterManager clusterManager) {
         this.clusterManager = clusterManager;
     }
 
     @Override
-    public void start() throws Exception {
+    public void start() {
         VertxOptions options = new VertxOptions().setClusterManager(clusterManager);
 
         Vertx.clusteredVertx(options, response -> {
@@ -23,10 +26,15 @@ public class Server extends AbstractVerticle {
                 vertx = response.result();
                 AbstractVerticle verticle = new Broker(new MessageSerDes());
                 vertx.deployVerticle(verticle, deployResponse -> {
-                    System.out.println("chissà come sarà andato il deploy! " + deployResponse);
+                    if (deployResponse.succeeded()) {
+                        logger.info("Verticle deploy succeeded");
+                    }
+                    else {
+                        logger.error("Verticle deploy failed", deployResponse.cause());
+                    }
                 });
             } else {
-                response.cause().printStackTrace();
+                logger.error("Clustered Vertx failed", response.cause());
                 throw new RuntimeException(response.cause());
             }
         });
@@ -34,7 +42,6 @@ public class Server extends AbstractVerticle {
 
     public static void main(String[] args) {
         ClusterManager clusterManager = new HazelcastClusterManager();
-
         Server server = new Server(clusterManager);
         Vertx.vertx().deployVerticle(server);
     }
