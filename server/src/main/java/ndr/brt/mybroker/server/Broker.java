@@ -11,9 +11,7 @@ import io.vertx.core.net.NetSocket;
 import io.vertx.core.parsetools.RecordParser;
 import io.vertx.core.streams.ReadStream;
 import ndr.brt.mybroker.protocol.Message;
-import ndr.brt.mybroker.protocol.request.Register;
-import ndr.brt.mybroker.protocol.request.Request;
-import ndr.brt.mybroker.protocol.request.Unregister;
+import ndr.brt.mybroker.protocol.request.*;
 import ndr.brt.mybroker.serdes.SerDes;
 
 import java.util.HashMap;
@@ -23,8 +21,10 @@ public class Broker extends AbstractVerticle {
     private final Logger logger = LoggerFactory.getLogger(getClass());
     private final Map<NetSocket, Client> clients;
     private final SerDes<Message> serdes;
+    private final Store store;
 
-    public Broker(SerDes<Message> serdes) {
+    public Broker(SerDes<Message> serdes, Store store) {
+        this.store = store;
         this.clients = new HashMap<>();
         this.serdes = serdes;
     }
@@ -61,7 +61,7 @@ public class Broker extends AbstractVerticle {
 
                 final Client client = clients.get(socket);
                 if (client != null) {
-                    if (!client.isClosed()) {
+                    if (client.isOpen()) {
                         client.close();
                         logger.info("Client " + client.clientId() +" disconnected");
                         clients.remove(socket);
@@ -85,26 +85,38 @@ public class Broker extends AbstractVerticle {
     }
 
     private void receive(NetSocket socket, Request data) {
-        logger.info(data.getClass().getSimpleName() + " received");
+        logger.info(data.clientId() + " - " + data.getClass().getSimpleName());
         if (Register.class.isInstance(data)) {
-            logger.info("From " + data.clientId() + " client");
             Register register = (Register) data;
 
             if (clients.containsKey(socket)) {
                 logger.info("Client " + data.clientId() + " already exists");
             }
             else {
-                Client client = new Client(this, register.clientId(), socket, serdes);
+                Client client = new Client(this, register.clientId(), socket, serdes, store);
                 clients.put(socket, client);
-                client.handle(data);
+                client.handle(register);
                 logger.info("Client " + data.clientId() +" registered");
             }
+        } else if (Produce.class.isInstance(data)) {
+            Produce produce = Produce.class.cast(data);
+            Client client = clients.get(socket);
+            if (client != null && client.isOpen()) {
+                client.handle(produce);
+            }
+        } else if (Consume.class.isInstance(data)) {
+            Consume consume = Consume.class.cast(data);
+            Client client = clients.get(socket);
+            if (client != null && client.isOpen()) {
+                client.handle(consume);
+            }
         } else if (Unregister.class.isInstance(data)) {
-            logger.info("From " + data.clientId() + " client");
-            if (clients.containsKey(socket)) {
+            Client client = clients.get(socket);
+            if (client != null) {
+                logger.info("Close client");
+                client.close();
                 clients.remove(socket);
             }
-
         } else {
             logger.error("Message unknown");
             throw new RuntimeException("Message unknown");
