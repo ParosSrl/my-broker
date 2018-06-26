@@ -13,7 +13,7 @@ public class Consumer1 {
 
         while (true) {
             Consumed consume = client.consume();
-            if (consume != null) {
+            if (consume != null && consume.records().size() > 0) {
                 System.out.println(consume.records());
             }
 

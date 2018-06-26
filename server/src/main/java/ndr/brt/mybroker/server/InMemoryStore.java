@@ -32,7 +32,7 @@ public class InMemoryStore implements Store {
         logger.info("Read requested for topic " + topic + " and offset " + offset);
         List<byte[]> records = topics.getOrDefault(topic, new ArrayList<>());
 
-        return IntStream.range(valueOf(offset).intValue(), records.size())
+        return IntStream.range(valueOf(offset + 1).intValue(), records.size())
                 .mapToObj(i -> new ConsumerRecord(i, records.get(i)))
                 .collect(Collectors.toList());
     }

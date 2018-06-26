@@ -230,7 +230,7 @@ public class Broker extends AbstractVerticle {
                 if (result.succeeded()) {
                     lock = result.result();
                     isLeader = true;
-                    Long offset = offsets.getOrDefault(clientId + topic, 0L);
+                    Long offset = offsets.getOrDefault(clientId + topic, -1L);
                     notifyLeadership(socket, clientId, isLeader, offset);
                     logger.info("Lock acquired for client " + clientId);
                     logger.info("Client " + clientId +" is now leader");
