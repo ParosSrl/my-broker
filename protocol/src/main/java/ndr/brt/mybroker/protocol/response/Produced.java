@@ -10,4 +10,8 @@ public class Produced extends Response {
         super(header);
         this.offset = offset;
     }
+
+    public long offset() {
+        return offset;
+    }
 }

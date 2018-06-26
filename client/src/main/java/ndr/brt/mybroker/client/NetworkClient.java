@@ -9,24 +9,21 @@ import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetSocket;
 import io.vertx.core.parsetools.RecordParser;
 import io.vertx.core.streams.ReadStream;
+import ndr.brt.mybroker.protocol.ConsumerRecord;
 import ndr.brt.mybroker.protocol.Header;
 import ndr.brt.mybroker.protocol.Message;
-import ndr.brt.mybroker.protocol.request.Register;
-import ndr.brt.mybroker.protocol.request.Request;
-import ndr.brt.mybroker.protocol.request.Unregister;
-import ndr.brt.mybroker.protocol.response.LeadershipNotification;
-import ndr.brt.mybroker.protocol.response.Registered;
-import ndr.brt.mybroker.protocol.response.Response;
-import ndr.brt.mybroker.protocol.response.Unregistered;
+import ndr.brt.mybroker.protocol.request.*;
+import ndr.brt.mybroker.protocol.response.*;
 import ndr.brt.mybroker.serdes.MessageSerDes;
 import ndr.brt.mybroker.serdes.SerDes;
 
-import java.util.UUID;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static io.vertx.core.Vertx.vertx;
 import static io.vertx.core.buffer.Buffer.buffer;
@@ -37,18 +34,24 @@ public class NetworkClient {
     private final Logger logger = LoggerFactory.getLogger(getClass());
     private final Vertx vertx;
     private SerDes<Message> serDes;
+    private final String topic;
     private boolean isConnected = false;
     private NetSocket socket;
     private final ConcurrentMap<String, Request> requests = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Response> responses = new ConcurrentHashMap<>();
     private ExecutorService executor = newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     private final AtomicBoolean isLeader;
+    private final AtomicLong offset;
+    private final String clientId;
 
-    public NetworkClient(Vertx vertx, SerDes<Message> serDes) {
+    public NetworkClient(Vertx vertx, SerDes<Message> serDes, String clientId, String topic) {
         this.vertx = vertx;
         this.serDes = serDes;
+        this.clientId = clientId;
+        this.topic = topic;
         this.socket = bind("localhost", 9999);
         isLeader = new AtomicBoolean();
+        offset = new AtomicLong();
     }
 
     private NetSocket bind(String host, int port) {
@@ -95,7 +98,7 @@ public class NetworkClient {
                     parser.fixedSizeMode(size);
                 } else {
                     final Message data = serDes.deserialize(buffer.getBytes());
-                    receive(data);
+                    receive((Response)data);
                     parser.fixedSizeMode(4);
                     size = -1;
                 }
@@ -103,42 +106,63 @@ public class NetworkClient {
         };
     }
 
-    private void receive(Message data) {
-        logger.info(data.getClass().getSimpleName() + " received");
-        if (Registered.class.isInstance(data)) {
-            responses.put(Registered.class.cast(data).correlationId(), (Response) data);
+    private void receive(Response response) {
+        logger.info(response.getClass().getSimpleName() + " received");
+        if (Registered.class.isInstance(response)) {
+            responses.put(response.correlationId(), response);
             isConnected = true;
             logger.info("I'm registered!");
-        } else if (Unregistered.class.isInstance(data)) {
+        } else if (Unregistered.class.isInstance(response)) {
             isConnected = false;
             logger.info("I'm unregistered! :(");
-        } else if (LeadershipNotification.class.isInstance(data)) {
-            LeadershipNotification leadership = LeadershipNotification.class.cast(data);
+        } else if (Produced.class.isInstance(response)) {
+            responses.put(response.correlationId(), response);
+            logger.info("Produced!");
+        } else if (Consumed.class.isInstance(response)) {
+            responses.put(response.correlationId(), response);
+            Consumed consumed = Consumed.class.cast(response);
+            List<ConsumerRecord> records = consumed.records();
+            offset.set(records.size() > 0 ? records.get(records.size() - 1).offset() : offset.get());
+            logger.info("Consumed!");
+        } else if (LeadershipNotification.class.isInstance(response)) {
+            LeadershipNotification leadership = LeadershipNotification.class.cast(response);
             isLeader.set(leadership.isLeader());
+            offset.set(leadership.offset());
             logger.info("Am I the leader? " + isLeader.get());
         } else {
             throw new RuntimeException("Unknown message");
         }
     }
 
-    public Registered register(final String clientId, final String username, final String password) {
-        CompletableFuture<Registered> promise = new CompletableFuture<>();
-        Register request = new Register(Header.headerFor(clientId), username, password);
-        try {
-            send(request,
-                    response -> promise.complete((Registered) response));
-        } catch (Exception e) {
-            promise.completeExceptionally(e);
-        }
-        return Async.await(promise);
+    public Registered register() {
+        Register request = new Register(Header.headerFor(clientId), topic);
+        return syncSend(request, Registered.class);
+    }
+
+    public Produced produce(byte[] bytes) {
+        Produce request = new Produce(Header.headerFor(clientId), topic, bytes);
+        return syncSend(request, Produced.class);
     }
 
     public Unregistered unregister(final String clientId) {
-        CompletableFuture<Unregistered> promise = new CompletableFuture<>();
+        Request request = new Unregister(Header.headerFor(clientId));
+        return syncSend(request, Unregistered.class);
+    }
+
+    public Consumed consume() {
+        if (isLeader.get()) {
+            Request request = new Consume(Header.headerFor(clientId), topic, offset.get());
+            return syncSend(request, Consumed.class);
+        }
+        else {
+            return null;
+        }
+    }
+
+    private <T extends Response> T syncSend(Request request, Class<T> responseType) {
+        CompletableFuture<T> promise = new CompletableFuture<>();
         try {
-            Request request = new Unregister(Header.headerFor(clientId));
-            send(request,
-                    response -> promise.complete((Unregistered) response));
+            send(request, response -> promise.complete(responseType.cast(response)));
         } catch (Exception e) {
             promise.completeExceptionally(e);
         }
@@ -191,8 +215,7 @@ public class NetworkClient {
     }
 
     public static void main(String[] args) {
-        NetworkClient client = new NetworkClient(vertx(), new MessageSerDes());
-        String clientId = "uniqueId";
-        client.register(clientId, "Gigi", "Sabani");
+        NetworkClient client = new NetworkClient(vertx(), new MessageSerDes(), "uniqueId", "topic");
+        client.register();
     }
 }

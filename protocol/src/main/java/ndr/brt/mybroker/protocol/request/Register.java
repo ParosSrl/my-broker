@@ -3,13 +3,15 @@ package ndr.brt.mybroker.protocol.request;
 import ndr.brt.mybroker.protocol.Header;
 
 public class Register extends Request {
-    private final String username;
-    private final String password;
+    private final String topic;
 
-    public Register(Header header, String username, String password) {
+    public Register(Header header, String topic) {
         super(header);
-        this.username = username;
-        this.password = password;
+        this.topic = topic;
+    }
+
+    public String topic() {
+        return topic;
     }
 
 }

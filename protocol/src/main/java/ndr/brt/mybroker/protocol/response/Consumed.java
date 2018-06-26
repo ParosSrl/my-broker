@@ -13,4 +13,8 @@ public class Consumed extends Response {
         super(header);
         this.records = records;
     }
+
+    public List<ConsumerRecord> records() {
+        return records;
+    }
 }

@@ -24,7 +24,7 @@ public class Server extends AbstractVerticle {
         Vertx.clusteredVertx(options, response -> {
             if (response.succeeded()) {
                 vertx = response.result();
-                AbstractVerticle verticle = new Broker(new MessageSerDes());
+                AbstractVerticle verticle = new Broker(new MessageSerDes(), new InMemoryStore());
                 vertx.deployVerticle(verticle, deployResponse -> {
                     if (deployResponse.succeeded()) {
                         logger.info("Verticle deploy succeeded");
